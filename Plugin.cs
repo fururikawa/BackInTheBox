@@ -17,10 +17,12 @@ public class Plugin : BaseUnityPlugin
 {
     private ConfigEntry<KeyCode> _actionKey;
     private ConfigEntry<KeyCode> _actionModifier;
+    private static int NEXUS_ID = 185;
     public Plugin()
     {
-        _actionKey = Config.Bind<KeyCode>("Controls", "Action Key", KeyCode.F, "The Key you want to use to box your animals!");
+        _actionKey = Config.Bind<KeyCode>("Controls", "Action Key", KeyCode.E, "The Key you want to use to box your animals!");
         _actionModifier = Config.Bind<KeyCode>("Controls", "Action Key Modifier", KeyCode.None, "Any modifiers to go with your order?");
+        Config.Bind<int>("Other", "Nexus ID", NEXUS_ID, "Do not change me. Seriously, move that cursor away!");
     }
     private void Awake()
     {
@@ -58,7 +60,7 @@ public class Plugin : BaseUnityPlugin
                             animalAi.enabled = false;
 
                             SoundManager.manage.playASoundAtPoint(animal.animalPatSound, carryBox.transform.position, 1.4f, 0.8f);
-                            // NetworkNavMesh.nav.UnSpawnFarmAnimal(animalAi);
+
                             animal.gameObject.SetActive(false);
                             SoundManager.manage.playASoundAtPoint(SoundManager.manage.plantSeed, carryBox.transform.position, 1.4f, 0.8f);
                             NetworkServer.Spawn(gameObject, (NetworkConnection)null);
@@ -109,40 +111,16 @@ public static class AnimalCarryBoxPatch
         return false;
     }
 
-    private static bool checkForFarmAnimal(CharMovement myChar)
-    {
-        if (myChar)
-        {
-            RaycastHit raycastHit;
-            Vector3 p1 = myChar.transform.position;
-            Vector3 p2 = p1 + Vector3.up * myChar.col.height;
-            if (Physics.CapsuleCast(p1, p2, myChar.col.radius / 2f, myChar.transform.forward, out raycastHit, 3.1f, LayerMask.GetMask("Prey")))
-            {
-                InteractableObject[] objs = raycastHit.collider.GetComponents<InteractableObject>();
-
-                foreach (var obj in objs)
-                {
-                    if (obj.isFarmAnimal != null)
-                    {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        return false;
-    }
-
     [HarmonyPatch(typeof(CharPickUp), "Update")]
     [HarmonyTranspiler]
-    private static IEnumerable<CodeInstruction> UpdatePrefix(IEnumerable<CodeInstruction> instructions, ILGenerator il)
+    private static IEnumerable<CodeInstruction> UpdateTranspiler(IEnumerable<CodeInstruction> instructions, ILGenerator il)
     {
         var label1 = il.DefineLabel();
         var label2 = il.DefineLabel();
         var label3 = il.DefineLabel();
 
         var _instructions = new CodeMatcher(instructions);
-        // callvirt bool CharInteract::canTileBePickedUp()
+
         _instructions
         .MatchForward(true,
             new CodeMatch(OpCodes.Ldsfld, AccessTools.Field(typeof(NotificationManager), "manage")),
@@ -152,7 +130,7 @@ public static class AnimalCarryBoxPatch
             new CodeMatch(OpCodes.Callvirt, AccessTools.Method(typeof(CharInteract), "canTileBePickedUp")))
         .Advance(1);
 
-        Label usedLabel = (Label)_instructions.Operand;
+        Label labelToClear = (Label)_instructions.Operand;
 
         _instructions
         .SetInstruction(new CodeInstruction(OpCodes.Brfalse, label1))
@@ -194,19 +172,14 @@ public static class AnimalCarryBoxPatch
         .InsertAndAdvance(new CodeInstruction(OpCodes.Callvirt, AccessTools.Method(typeof(NotificationManager), "hintWindowOpen", new Type[] { typeof(NotificationManager.toolTipType) })))
         .InsertAndAdvance(new CodeInstruction(OpCodes.Br_S, label3));
 
-        var labelToSwitch = _instructions.Labels.First();
+        var labelToSwitch = _instructions.Labels.Single();
         _instructions.Labels.Remove(labelToSwitch);
         _instructions.Labels.Add(label2);
+
         _instructions.Advance(3)
             .AddLabels(new Label[] { labelToSwitch, label3 });
 
-        _instructions.Labels.Remove(usedLabel);
-
-
-        foreach (var i in _instructions.InstructionEnumeration())
-        {
-            Debug.Log(i.ToString());
-        }
+        _instructions.Labels.Remove(labelToClear);
 
         return _instructions.InstructionEnumeration();
     }
